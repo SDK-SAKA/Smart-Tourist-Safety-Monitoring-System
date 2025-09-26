@@ -1,0 +1,12 @@
+@import 'https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css';
+   @import 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+
+   .custom-marker-icon {
+     background: transparent !important;
+     border: none !important;
+   }
+
+   .leaflet-popup-content-wrapper {
+     border-radius: 8px;
+     box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+   }
