@@ -1,4 +1,4 @@
-# main.py - FastAPI Backend with MongoDB
+# main.py - FastAPI Backend with Supabase
 from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
@@ -7,9 +7,7 @@ from typing import Optional, List
 from datetime import datetime, timedelta
 from passlib.context import CryptContext
 import jwt
-from bson import ObjectId
-import motor.motor_asyncio
-from pymongo.errors import DuplicateKeyError
+from supabase import create_client, Client
 import os
 from dotenv import load_dotenv
 import hashlib
@@ -21,7 +19,7 @@ load_dotenv()
 # Initialize FastAPI app
 app = FastAPI(
     title="Smart Tourist Safety API",
-    description="Police Dashboard API with MongoDB Integration",
+    description="Police Dashboard API with Supabase Integration",
     version="1.0.0"
 )
 
@@ -34,12 +32,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# MongoDB configuration
-MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
-DATABASE_NAME = os.getenv("DATABASE_NAME", "tourist_safety_db")
+# Supabase configuration
+SUPABASE_URL = "https://bvimcdphllrmsqtbdmwr.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ2aW1jZHBobGxybXNxdGJkbXdyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjAzODk0ODYsImV4cCI6MjA3NTk2NTQ4Nn0.8mscN_sE3t_Ib1a3hXo2P0rxL9EmjMswSYAiBOhhX6E"
 
 # JWT configuration
-JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-super-secret-jwt-key-change-in-production")
+JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "sAmVmWdwKSokMn++YY23fMp9y65p7vxR2wMEjrPBe/8cMFCaRyfxJcv1tqjJciVCyrMPNbpMLacmzoeifM5dAw==")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_TIME_HOURS = 24
 
@@ -49,15 +47,8 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 # Security
 security = HTTPBearer()
 
-# MongoDB client
-client = motor.motor_asyncio.AsyncIOMotorClient(MONGODB_URL)
-database = client[DATABASE_NAME]
-
-# Collections
-users_collection = database.get_collection("users")
-tourists_collection = database.get_collection("tourists")
-incidents_collection = database.get_collection("incidents")
-sessions_collection = database.get_collection("sessions")
+# Supabase client
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # Pydantic Models
 class UserRegister(BaseModel):
@@ -155,20 +146,20 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials"
         )
-    
-    user = await users_collection.find_one({"username": username})
-    if user is None:
+
+    response = supabase.table("officers").select("*").eq("username", username).execute()
+    if not response.data:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found"
         )
-    
-    return user
+
+    return response.data[0]
 
 def user_dict_to_response(user_dict: dict) -> UserResponse:
-    """Convert user dict from MongoDB to UserResponse"""
+    """Convert user dict from Supabase to UserResponse"""
     return UserResponse(
-        id=str(user_dict["_id"]),
+        id=str(user_dict["id"]),
         username=user_dict["username"],
         email=user_dict["email"],
         full_name=user_dict["full_name"],
@@ -185,31 +176,27 @@ def user_dict_to_response(user_dict: dict) -> UserResponse:
 # Startup event
 @app.on_event("startup")
 async def startup_event():
-    """Create indexes on startup"""
-    # Create unique indexes
-    await users_collection.create_index("username", unique=True)
-    await users_collection.create_index("email", unique=True)
-    await tourists_collection.create_index("passport_number", unique=True, sparse=True)
-    await tourists_collection.create_index("aadhaar_number", unique=True, sparse=True)
-    
-    # Create default admin user if doesn't exist
-    admin_exists = await users_collection.find_one({"username": "admin"})
-    if not admin_exists:
-        admin_user = {
-            "username": "admin",
-            "email": "admin@police.gov.in",
-            "password": hash_password("admin123"),
-            "full_name": "System Administrator",
-            "phone": "+91-9999999999",
-            "department": "IT Department",
-            "rank": "Administrator",
-            "station_id": "ADMIN001",
-            "role": "admin",
-            "is_active": True,
-            "created_at": datetime.utcnow()
-        }
-        await users_collection.insert_one(admin_user)
-        print("Default admin user created: admin/admin123")
+    """Create default admin user if doesn't exist"""
+    try:
+        admin_exists = supabase.table("officers").select("*").eq("username", "admin").execute()
+        if not admin_exists.data:
+            admin_user = {
+                "username": "admin",
+                "email": "admin@police.gov.in",
+                "password": hash_password("admin123"),
+                "full_name": "System Administrator",
+                "phone": "+91-9999999999",
+                "department": "IT Department",
+                "rank": "Administrator",
+                "station_id": "ADMIN001",
+                "role": "admin",
+                "created_at": datetime.utcnow().isoformat(),
+                "updated_at": datetime.utcnow().isoformat()
+            }
+            supabase.table("officers").insert(admin_user).execute()
+            print("Default admin user created: admin/admin123")
+    except Exception as e:
+        print(f"Error creating admin user: {e}")
 
 # Authentication Routes
 @app.post("/api/auth/register", response_model=UserResponse)
@@ -217,28 +204,23 @@ async def register_user(user_data: UserRegister):
     """Register a new user"""
     try:
         # Check if username or email already exists
-        existing_user = await users_collection.find_one({
-            "$or": [
-                {"username": user_data.username},
-                {"email": user_data.email}
-            ]
-        })
-        
-        if existing_user:
-            if existing_user["username"] == user_data.username:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Username already registered"
-                )
-            else:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Email already registered"
-                )
-        
+        existing_username = supabase.table("officers").select("*").eq("username", user_data.username).execute()
+        existing_email = supabase.table("officers").select("*").eq("email", user_data.email).execute()
+
+        if existing_username.data:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Username already registered"
+            )
+        if existing_email.data:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already registered"
+            )
+
         # Hash password
         hashed_password = hash_password(user_data.password)
-        
+
         # Create user document
         user_doc = {
             "username": user_data.username,
@@ -251,62 +233,62 @@ async def register_user(user_data: UserRegister):
             "station_id": user_data.station_id,
             "role": user_data.role,
             "is_active": True,
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.utcnow().isoformat(),
             "last_login": None
         }
-        
+
         # Insert user
-        result = await users_collection.insert_one(user_doc)
-        
+        result = supabase.table("officers").insert(user_doc).execute()
+
         # Get created user
-        created_user = await users_collection.find_one({"_id": result.inserted_id})
-        
+        created_user = result.data[0]
+
         return user_dict_to_response(created_user)
-        
-    except DuplicateKeyError:
+
+    except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Username or email already exists"
+            detail="Registration failed"
         )
 
 @app.post("/api/auth/login", response_model=TokenResponse)
 async def login_user(user_credentials: UserLogin):
     """Login user and return JWT token"""
     # Find user
-    user = await users_collection.find_one({"username": user_credentials.username})
-    
-    if not user:
+    response = supabase.table("officers").select("*").eq("username", user_credentials.username).execute()
+
+    if not response.data:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password"
         )
-    
+
+    user = response.data[0]
+
     # Verify password
     if not verify_password(user_credentials.password, user["password"]):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password"
         )
-    
+
     # Check if user is active
     if not user["is_active"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account is deactivated"
         )
-    
+
     # Update last login
-    await users_collection.update_one(
-        {"_id": user["_id"]},
-        {"$set": {"last_login": datetime.utcnow()}}
-    )
-    
+    supabase.table("officers").update({"last_login": datetime.utcnow().isoformat()}).eq("id", user["id"]).execute()
+
     # Create access token
     access_token = create_access_token(data={"sub": user["username"]})
-    
+
     # Get updated user
-    updated_user = await users_collection.find_one({"_id": user["_id"]})
-    
+    updated_response = supabase.table("officers").select("*").eq("id", user["id"]).execute()
+    updated_user = updated_response.data[0]
+
     return TokenResponse(
         access_token=access_token,
         token_type="bearer",
@@ -332,11 +314,10 @@ async def get_all_users(current_user = Depends(get_current_user)):
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not enough permissions"
         )
-    
-    users_cursor = users_collection.find({})
-    users = await users_cursor.to_list(length=None)
-    
-    return [user_dict_to_response(user) for user in users]
+
+    response = supabase.table("officers").select("*").execute()
+
+    return [user_dict_to_response(user) for user in response.data]
 
 @app.get("/api/users/{user_id}", response_model=UserResponse)
 async def get_user_by_id(user_id: str, current_user = Depends(get_current_user)):
@@ -346,16 +327,16 @@ async def get_user_by_id(user_id: str, current_user = Depends(get_current_user))
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not enough permissions"
         )
-    
+
     try:
-        user = await users_collection.find_one({"_id": ObjectId(user_id)})
-        if not user:
+        response = supabase.table("officers").select("*").eq("id", user_id).execute()
+        if not response.data:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="User not found"
             )
-        return user_dict_to_response(user)
-    except:
+        return user_dict_to_response(response.data[0])
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid user ID"
@@ -369,21 +350,12 @@ async def deactivate_user(user_id: str, current_user = Depends(get_current_user)
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required"
         )
-    
+
     try:
-        result = await users_collection.update_one(
-            {"_id": ObjectId(user_id)},
-            {"$set": {"is_active": False}}
-        )
-        
-        if result.matched_count == 0:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found"
-            )
-        
+        supabase.table("officers").update({"is_active": False}).eq("id", user_id).execute()
+
         return {"message": "User deactivated successfully"}
-    except:
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid user ID"
@@ -394,12 +366,15 @@ async def deactivate_user(user_id: str, current_user = Depends(get_current_user)
 async def get_dashboard_stats(current_user = Depends(get_current_user)):
     """Get dashboard statistics"""
     # Mock data - replace with actual database queries
+    response = supabase.table("officers").select("*").execute()
+    total_users = len(response.data)
+
     stats = {
         "active_tourists": 4,
         "active_incidents": 1,
         "safe_tourists": 3,
         "efirs_today": 3,
-        "total_users": await users_collection.count_documents({}),
+        "total_users": total_users,
         "last_updated": datetime.utcnow()
     }
     return stats

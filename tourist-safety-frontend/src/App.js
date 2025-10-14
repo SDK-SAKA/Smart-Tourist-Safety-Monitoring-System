@@ -4,15 +4,15 @@ import L from 'leaflet';
 import { createClient } from '@supabase/supabase-js';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
-import { 
-  Shield, 
-  Users, 
-  AlertTriangle, 
-  FileText, 
-  Eye, 
-  MapPin, 
-  Clock, 
-  Phone, 
+import {
+  Shield,
+  Users,
+  AlertTriangle,
+  FileText,
+  Eye,
+  MapPin,
+  Clock,
+  Phone,
   User,
   LogOut,
   Bell,
@@ -28,8 +28,8 @@ import {
 } from 'lucide-react';
 
 // Supabase Configuration
-const supabaseUrl = 'https://frasdyitmudmkthdtdvn.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZyYXNkeWl0bXVkbWt0aGR0ZHZuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg5MDczNjcsImV4cCI6MjA3NDQ4MzM2N30.g39K_KEsh5ACaph_-G9b8l1E195iS3mz8z577LS0rDA';
+const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
+const supabaseAnonKey = process.env.REACT_APP_SUPABASE_ANON_KEY;
 
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
@@ -191,123 +191,53 @@ const coimbatoreData = {
 // API Configuration (fallback)
 const API_BASE_URL = 'http://localhost:8000/api';
 
-// API Service with Supabase Integration
-const apiService = {
-  // Debug function to check localStorage
-  debugLocalStorage: () => {
-    const users = JSON.parse(localStorage.getItem('demo_users') || '[]');
-    console.log('🔍 DEBUG: localStorage demo_users:', users);
-    return users;
-  },
-
-  // Create a test user for debugging
-  createTestUser: () => {
-    const users = JSON.parse(localStorage.getItem('demo_users') || '[]');
-    
-    // Check if test user already exists
-    const testUserExists = users.find(u => u.username === 'testuser' || u.email === 'test@example.com');
-    if (testUserExists) {
-      console.log('✅ Test user already exists');
-      return testUserExists;
-    }
-
-    const testUser = {
-      id: Date.now(),
-      username: 'testuser',
-      email: 'test@example.com',
-      password: 'test123',
-      full_name: 'Test User',
-      phone: '1234567890',
-      department: 'Test Department',
-      rank: 'Officer',
-      station_id: '001',
-      role: 'officer',
-      created_at: new Date().toISOString()
-    };
-    
-    users.push(testUser);
-    localStorage.setItem('demo_users', JSON.stringify(users));
-    console.log('🎯 Created test user:', testUser);
-    return testUser;
-  },
+  // API Service with Supabase Integration (Supabase-only, no localStorage fallbacks)
+  const apiService = {
   // Auth endpoints with Supabase
   register: async (userData) => {
     console.log('Attempting direct database registration for:', userData.username);
-    
-    try {
-      // Check if user already exists in database
-      const { data: existingUser, error: checkError } = await supabase
-        .from('officers')
-        .select('username, email')
-        .or(`username.eq.${userData.username},email.eq.${userData.email}`)
-        .single();
 
-      if (existingUser) {
-        console.log('User already exists:', existingUser);
-        return { detail: 'User with this username or email already exists' };
-      }
+    // Check if user already exists in database
+    const { data: existingUser } = await supabase
+      .from('officers')
+      .select('username, email')
+      .or(`username.eq.${userData.username},email.eq.${userData.email}`)
+      .single();
 
-      // Insert new user directly into officers table
-      const { data: newUser, error: insertError } = await supabase
-        .from('officers')
-        .insert([{
-          username: userData.username,
-          email: userData.email,
-          password: userData.password, // Store password for direct auth
-          full_name: userData.full_name,
-          phone: userData.phone,
-          department: userData.department,
-          rank: userData.rank,
-          station_id: userData.station_id,
-          role: userData.role || 'officer',
-          created_at: new Date().toISOString()
-        }])
-        .select()
-        .single();
+    if (existingUser) {
+      console.log('User already exists:', existingUser);
+      return { detail: 'User with this username or email already exists' };
+    }
 
-      if (insertError) {
-        console.error('Database registration error:', insertError);
-        throw insertError;
-      }
-
-      console.log('Database registration successful for:', userData.full_name);
-      return { 
-        username: userData.username, 
-        id: newUser.id,
-        success: true
-      };
-      
-    } catch (error) {
-      console.error('Registration error:', error);
-      
-      // Fallback to localStorage for demo
-      console.log('Falling back to localStorage demo');
-      const users = JSON.parse(localStorage.getItem('demo_users') || '[]');
-      
-      if (users.some(user => user.username === userData.username || user.email === userData.email)) {
-        return { detail: 'User with this username or email already exists' };
-      }
-      
-      const newUser = {
-        id: Date.now(),
+    // Insert new user directly into officers table
+    const { data: newUser, error: insertError } = await supabase
+      .from('officers')
+      .insert([{
         username: userData.username,
         email: userData.email,
-        password: userData.password,
+        password: userData.password, // Store password for direct auth
         full_name: userData.full_name,
         phone: userData.phone,
         department: userData.department,
         rank: userData.rank,
         station_id: userData.station_id,
-        role: userData.role,
+        role: userData.role || 'officer',
         created_at: new Date().toISOString()
-      };
-      
-      users.push(newUser);
-      localStorage.setItem('demo_users', JSON.stringify(users));
-      
-      console.log('Demo user registered:', userData.full_name);
-      return { username: userData.username, id: newUser.id, success: true };
+      }])
+      .select()
+      .single();
+
+    if (insertError) {
+      console.error('Database registration error:', insertError);
+      throw insertError;
     }
+
+    console.log('Database registration successful for:', userData.full_name);
+    return {
+      username: userData.username,
+      id: newUser.id,
+      success: true
+    };
   },
 
   login: async (credentials) => {
@@ -943,13 +873,15 @@ function App() {
         apiService.getTourists(token),
         apiService.getIncidents(token)
       ]);
-      
-      setDashboardStats(stats);
-      setTourists(touristsData);
-      setIncidents(incidentsData);
+
+      setDashboardStats(stats || dashboardStats);
+      setTourists(Array.isArray(touristsData) ? touristsData : mockTourists);
+      setIncidents(Array.isArray(incidentsData) ? incidentsData : mockIncidents);
     } catch (error) {
       console.error('Failed to load dashboard data:', error);
       // Use mock data as fallback
+      setTourists(mockTourists);
+      setIncidents(mockIncidents);
     }
   };
 

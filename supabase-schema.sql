@@ -85,41 +85,14 @@ CREATE TABLE public.efirs (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 6. Enable Row Level Security (RLS)
-ALTER TABLE public.officers ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.tourists ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.incidents ENABLE ROW LEVEL SECURITY;
+-- 6. Row Level Security (RLS) - Disabled since using direct authentication
+-- ALTER TABLE public.officers ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE public.tourists ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE public.incidents ENABLE ROW LEVEL SECURITY;
 
--- 6. Create RLS Policies
-
--- Officers: Users can only see their own profile
-CREATE POLICY "Users can view own profile" ON public.officers
-    FOR SELECT USING (auth.uid() = id);
-
-CREATE POLICY "Users can update own profile" ON public.officers
-    FOR UPDATE USING (auth.uid() = id);
-
-CREATE POLICY "Anyone can insert officer profile on signup" ON public.officers
-    FOR INSERT WITH CHECK (true);
-
--- Notifications: All authenticated users can read, system can insert
-CREATE POLICY "Authenticated users can view notifications" ON public.notifications
-    FOR SELECT USING (auth.role() = 'authenticated');
-
-CREATE POLICY "Authenticated users can insert notifications" ON public.notifications
-    FOR INSERT WITH CHECK (auth.role() = 'authenticated');
-
-CREATE POLICY "Authenticated users can delete notifications" ON public.notifications
-    FOR DELETE USING (auth.role() = 'authenticated');
-
--- Tourists: All authenticated users can read and update
-CREATE POLICY "Authenticated users can view tourists" ON public.tourists
-    FOR ALL USING (auth.role() = 'authenticated');
-
--- Incidents: All authenticated users can read and update
-CREATE POLICY "Authenticated users can view incidents" ON public.incidents
-    FOR ALL USING (auth.role() = 'authenticated');
+-- Note: RLS policies removed as they conflict with direct JWT authentication
+-- The backend handles authorization manually
 
 -- 7. Create indexes for better performance
 CREATE INDEX idx_officers_username ON public.officers(username);
